@@ -1,0 +1,36 @@
+{
+  "name": "mcp-client-typescript",
+  "version": "1.0.0",
+  "description": "LLM-powered MCP chatbot client (TypeScript) — connects to any stdio MCP server and lets Claude call its tools",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "mcp-client": "./build/index.js"
+  },
+  "scripts": {
+    "build": "tsc && chmod 755 build/index.js",
+    "start": "node build/index.js",
+    "client": "node build/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "anthropic",
+    "claude",
+    "chatbot"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.127.0",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "dotenv": "^17.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "typescript": "^5.9.2"
+  }
+}
