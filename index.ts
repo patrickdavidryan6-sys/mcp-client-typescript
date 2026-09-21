@@ -7,7 +7,7 @@
  *
  * Based on: https://modelcontextprotocol.io/docs/develop/build-client
  */
-import { Anthropic } from "@anthropic-ai/sdk";
+import { Anthropic, AuthenticationError } from "@anthropic-ai/sdk";
 import type {
   MessageParam,
   Tool,
@@ -28,30 +28,59 @@ dotenv.config();
  */
 const MODEL = "claude-sonnet-4-5-20250929";
 
+/** Clear setup help when Anthropic rejects auth (401 / AuthenticationError). */
+function printAuthHelp(): void {
+  console.log(`
+Authentication failed (no usable Anthropic credentials).
+
+Set up credentials one of these ways:
+
+  Preferred:  ant auth login
+              ant auth status   # see which credential source / profile is active
+
+  Or:         export ANTHROPIC_API_KEY=sk-ant-...
+              (or add it to a .env file — see .env.example)
+
+  Or:         export ANTHROPIC_AUTH_TOKEN=...
+
+If a stale pasted ANTHROPIC_API_KEY is set, it overrides ant auth login
+profiles — unset it first:
+  unset ANTHROPIC_API_KEY
+`);
+}
+
+function isAuthFailure(error: unknown): boolean {
+  if (error instanceof AuthenticationError) {
+    return true;
+  }
+  if (
+    error &&
+    typeof error === "object" &&
+    "status" in error &&
+    (error as { status?: unknown }).status === 401
+  ) {
+    return true;
+  }
+  return false;
+}
+
 class MCPClient {
   private mcp: Client;
   private anthropic: Anthropic | null = null;
   private transport: StdioClientTransport | null = null;
   private tools: Tool[] = [];
-  private readonly apiKey: string | undefined;
 
   constructor() {
-    this.apiKey = process.env.ANTHROPIC_API_KEY;
-    // Defer Anthropic client creation until chat — missing key must not block
-    // connect + listTools (quickstart note / Ruby client behavior).
+    // Anthropic client is created lazily with default credential resolution
+    // (ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, or ant auth login profile).
     this.mcp = new Client({ name: "mcp-client-cli", version: "1.0.0" });
-  }
-
-  get hasApiKey(): boolean {
-    return Boolean(this.apiKey && this.apiKey.trim().length > 0);
   }
 
   private getAnthropic(): Anthropic {
     if (!this.anthropic) {
-      if (!this.hasApiKey) {
-        throw new Error("ANTHROPIC_API_KEY is not set");
-      }
-      this.anthropic = new Anthropic({ apiKey: this.apiKey });
+      // Default — resolves credentials from the environment:
+      // ANTHROPIC_API_KEY, or ANTHROPIC_AUTH_TOKEN, or an `ant auth login` profile.
+      this.anthropic = new Anthropic();
     }
     return this.anthropic;
   }
@@ -259,7 +288,11 @@ class MCPClient {
           const response = await this.processQuery(message);
           console.log("\n" + response);
         } catch (e) {
-          console.log("\nError:", e instanceof Error ? e.message : e);
+          if (isAuthFailure(e)) {
+            printAuthHelp();
+          } else {
+            console.log("\nError:", e instanceof Error ? e.message : e);
+          }
         }
       }
     } finally {
@@ -284,18 +317,9 @@ async function main() {
   const mcpClient = new MCPClient();
   try {
     await mcpClient.connectToServer(process.argv[2]);
-
-    if (!mcpClient.hasApiKey) {
-      console.log(
-        "\nNo ANTHROPIC_API_KEY found. Connected and listed tools successfully.\n" +
-          "To chat with Claude using these tools, set your API key:\n" +
-          "  export ANTHROPIC_API_KEY=your-api-key-here\n" +
-          "  or add it to a .env file (see .env.example)."
-      );
-      await mcpClient.cleanup();
-      process.exit(0);
-    }
-
+    // Always enter chat after connect — SDK may resolve credentials via
+    // ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, or an `ant auth login` profile.
+    // Auth failures are handled inside chatLoop on first Anthropic call.
     await mcpClient.chatLoop();
   } catch (e) {
     console.error("Error:", e);
